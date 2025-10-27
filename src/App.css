@@ -1,0 +1,52 @@
+.App {
+  min-height: 100vh;
+}
+
+/* 地图容器样式 */
+.leaflet-container {
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* 自定义星星标记 */
+.custom-star-marker-div {
+  background: transparent;
+  border: none;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .App main {
+    padding-top: 16px;
+  }
+  
+  .leaflet-container {
+    min-height: 400px;
+  }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card-hover {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* 统计卡片动画 */
+.stat-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
