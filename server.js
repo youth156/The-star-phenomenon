@@ -177,56 +177,24 @@ function initSampleData() {
   const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   
   if (data.markers.length === 0) {
-    const sampleMarkers = [
-      {
-        id: Date.now().toString() + '1',
-        nickname: '旅行者小明',
-        location: '北京',
-        latitude: 39.9042,
-        longitude: 116.4074,
-        message: '故宫的雪景真美！',
-        image: 'https://picsum.photos/id/1015/800/600',
-        likes: 0,
-        date: new Date().toISOString().slice(0, 19).replace('T', ' ')
-      },
-      {
-        id: Date.now().toString() + '2',
-        nickname: '摄影爱好者',
-        location: '上海',
-        latitude: 31.2304,
-        longitude: 121.4737,
-        message: '外滩夜景，灯火辉煌',
-        image: 'https://picsum.photos/id/1016/800/600',
-        likes: 0,
-        date: new Date().toISOString().slice(0, 19).replace('T', ' ')
-      },
-      {
-        id: Date.now().toString() + '3',
-        nickname: '城市探险家',
-        location: '广州',
-        latitude: 23.1291,
-        longitude: 113.2644,
-        message: '广州塔下的美食街',
-        image: 'https://picsum.photos/id/1019/800/600',
-        likes: 0,
-        date: new Date().toISOString().slice(0, 19).replace('T', ' ')
-      }
-    ];
-    
-    data.markers = sampleMarkers;
-    data.stats.totalMarkers = sampleMarkers.length;
-    data.stats.totalPhotos = sampleMarkers.filter(m => m.image).length;
-    data.stats.totalCities = new Set(sampleMarkers.map(m => m.location)).size;
-    data.stats.totalComments = sampleMarkers.length;
+      // 不初始化示例数据，保持数据为空
+    data.markers = [];
+    data.stats.totalMarkers = 0;
+    data.stats.totalPhotos = 0;
+    data.stats.totalCities = 0;
+    data.stats.totalComments = 0;
     
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    console.log('示例数据初始化完成');
+    console.log('数据已重置为空');
   }
 }
 
 // 数据库连接测试
 async function testDatabaseConnection() {
   try {
+    // 启用MySQL连接尝试
+    console.log('正在尝试连接MySQL数据库...');
+    
     // 首先初始化数据库
     await initializeDatabase();
     

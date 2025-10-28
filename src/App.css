@@ -4,8 +4,40 @@
 
 /* 地图容器样式 */
 .leaflet-container {
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  height: 100% !important;
+  width: 100% !important;
+  min-height: 400px;
+  position: relative;
+  z-index: 1;
+}
+
+/* 地图容器额外样式 */
+.map-container-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* 确保瓦片完全加载 */
+.leaflet-pane {
+  z-index: 1;
+}
+
+.leaflet-tile {
+  z-index: 1;
+  transition: opacity 0.2s ease-in-out;
+}
+
+/* 修复地图边缘裁剪问题 */
+.leaflet-map-pane {
+  overflow: visible !important;
+}
+
+.leaflet-tile-container {
+  z-index: 1;
 }
 
 /* 自定义星星标记 */
@@ -21,7 +53,7 @@
   }
   
   .leaflet-container {
-    min-height: 400px;
+    min-height: 300px;
   }
 }
 

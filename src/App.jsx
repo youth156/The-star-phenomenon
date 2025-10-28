@@ -88,23 +88,9 @@ function App() {
           setStats({ totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
         }
       } else {
-        // 最后尝试从sample-data.json加载
-        fetch('sample-data.json')
-          .then(response => response.json())
-          .then((sampleData) => {
-            if (sampleData.markers) {
-              const formattedMarkers = sampleData.markers.map(marker => ({
-                ...marker,
-                position: [marker.latitude, marker.longitude]
-              }));
-              setMarkers(formattedMarkers);
-              setStats(sampleData.stats || { totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
-              localStorage.setItem('markers', JSON.stringify(formattedMarkers));
-            }
-          })
-          .catch(() => {
-            setStats({ totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
-          });
+        // 不加载示例数据，保持为空
+        setMarkers([]);
+        setStats({ totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
       }
     };
 
@@ -372,7 +358,7 @@ function App() {
 
             {/* 地图区域 */}
             <div className="bg-white rounded-xl shadow-sm overflow-hidden w-full">
-              <div className="w-full h-[600px] md:h-[700px] lg:h-[800px]" ref={mapRef} style={{ zIndex: 1 }}>
+              <div className="w-full h-[600px] md:h-[700px] lg:h-[800px] map-container-wrapper" ref={mapRef} style={{ zIndex: 1, position: 'relative' }}>
                 <MapContainer 
                   center={[35.8617, 104.1954]} 
                   zoom={4} 
@@ -381,56 +367,70 @@ function App() {
                   zoomControl={true}
                   scrollWheelZoom={true}
                   dragging={true}
+                  whenReady={(evt) => {
+                    console.log('地图准备就绪');
+                    // 使用正确的方式调用invalidateSize
+                    const mapInstance = evt.target;
+                    // 短暂延迟后触发地图重绘
+                    setTimeout(() => {
+                      mapInstance.invalidateSize();
+                    }, 100);
+                  }}
                 >
+                  {/* 使用本地缓存优先的策略，使用更稳定的瓦片源 */}
                   <TileLayer
-                    url="https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png"
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution="&copy; OpenStreetMap contributors"
                     maxZoom={19}
-                    minZoom={3}
+                    minZoom={2}
                     crossOrigin={true}
-                    keepBuffer={1}
+                    keepBuffer={3}
                     noWrap={true}
-                    errorTileUrl="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='12' fill='%23999'%3ETile loading...%3C/text%3E%3C/svg%3E"
+                    tileSize={256}
+                    errorTileUrl="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='12' fill='%23999'%3ETile%3C/text%3E%3C/svg%3E"
                     maxNativeZoom={19}
+                    subdomains={['a', 'b', 'c']}
                   />
-                  {/* 添加备用瓦片源作为回退 */}
+                  {/* 添加备选瓦片源，使用CartoDB */}
                   <TileLayer
-                    url="https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png"
-                    attribution="&copy; OpenStreetMap contributors"
+                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                    attribution="&copy; OpenStreetMap contributors, &copy; CartoDB"
                     maxZoom={19}
-                    minZoom={3}
+                    minZoom={2}
                     crossOrigin={true}
+                    tileSize={256}
+                    zIndex={2}
                     opacity={0}
-                    zIndex={-1}
+                    subdomains={['a', 'b', 'c', 'd']}
                   />
                   {markers.map(marker => (
-                    <StarMarker 
-                      key={marker.id} 
-                      position={marker.position} 
-                      color="#6366F1"
-                      onClick={() => setSelectedMarker(marker)}
-                    >
-                      <Popup>
-                        <div className="min-w-[250px]">
-                          <h3 className="font-bold text-lg">{marker.nickname}</h3>
-                          <p className="text-sm text-gray-500 mb-2">{marker.location}</p>
-                          <p className="mb-3">{marker.message}</p>
-                          {marker.image && (
-                            <img src={marker.image} alt="分享图片" className="w-full max-h-64 object-contain rounded-md mb-2 mx-auto" />
-                          )}
-                          <div className="flex justify-between items-center text-xs text-gray-500">
-                            <span>{marker.date}</span>
-                            <div className="flex items-center">
-                              <i className="fa fa-heart-o mr-1"></i>
-                              {marker.likes}
+                      <StarMarker 
+                        key={marker.id} 
+                        position={marker.position} 
+                        color="#6366F1"
+                        onClick={() => setSelectedMarker(marker)}
+                      >
+                        <Popup>
+                          <div className="min-w-[250px]">
+                            <h3 className="font-bold text-lg">{marker.nickname}</h3>
+                            <p className="text-sm text-gray-500 mb-2">{marker.location}</p>
+                            <p className="mb-3">{marker.message}</p>
+                            {marker.image && (
+                              <img src={marker.image} alt="分享图片" className="w-full max-h-64 object-contain rounded-md mb-2 mx-auto" />
+                            )}
+                            <div className="flex justify-between items-center text-xs text-gray-500">
+                              <span>{marker.date}</span>
+                              <div className="flex items-center">
+                                <i className="fa fa-heart-o mr-1"></i>
+                                {marker.likes}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </Popup>
-                    </StarMarker>
-                  ))}
-                </MapContainer>
-              </div>
+                        </Popup>
+                      </StarMarker>
+                    ))}
+                  </MapContainer>
+                </div>
             </div>
           </div>
         </main>
