@@ -16,9 +16,142 @@ app.use(express.json());
 const DB_CONFIG = {
   host: 'localhost',
   user: 'root',
-  password: 'z494TZjcdg?u',
+  password: 'ZNN101012',
   database: 'star_map'
 };
+
+// 数据库初始化函数
+async function initializeDatabase() {
+  try {
+    // 首先尝试连接数据库
+    const connection = await mysql.createConnection({
+      host: DB_CONFIG.host,
+      user: DB_CONFIG.user,
+      password: DB_CONFIG.password
+    });
+    
+    // 创建数据库（如果不存在）
+    await connection.execute(`CREATE DATABASE IF NOT EXISTS ${DB_CONFIG.database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    await connection.execute(`USE ${DB_CONFIG.database}`);
+    
+    // 创建用户表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) NOT NULL UNIQUE,
+        nickname VARCHAR(50) NOT NULL,
+        avatar_url TEXT,
+        registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // 创建位置表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS locations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INTEGER,
+        latitude DECIMAL(10, 8) NOT NULL,
+        longitude DECIMAL(11, 8) NOT NULL,
+        address VARCHAR(255),
+        city VARCHAR(100),
+        province VARCHAR(100),
+        country VARCHAR(100) DEFAULT '中国',
+        timezone VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_latitude_longitude (latitude, longitude)
+      )
+    `);
+    
+    // 创建内容表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS contents (
+        id VARCHAR(50) PRIMARY KEY,
+        location_id INTEGER,
+        user_id INTEGER,
+        message TEXT,
+        image_path TEXT,
+        image_url TEXT,
+        likes_count INTEGER DEFAULT 0,
+        view_count INTEGER DEFAULT 0,
+        is_featured BOOLEAN DEFAULT FALSE,
+        status VARCHAR(20) DEFAULT 'published',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // 创建点赞表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS likes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        content_id VARCHAR(50),
+        user_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(content_id, user_id)
+      )
+    `);
+    
+    // 创建统计表
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS statistics (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        total_users INTEGER DEFAULT 0,
+        total_locations INTEGER DEFAULT 0,
+        total_contents INTEGER DEFAULT 0,
+        total_photos INTEGER DEFAULT 0,
+        total_likes INTEGER DEFAULT 0,
+        total_cities INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        total_markers INT DEFAULT 0,
+        total_comments INT DEFAULT 0
+      )
+    `);
+    
+    // 添加外键约束
+    try {
+      await connection.execute(`ALTER TABLE locations ADD CONSTRAINT IF NOT EXISTS fk_locations_users FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
+      await connection.execute(`ALTER TABLE contents ADD CONSTRAINT IF NOT EXISTS fk_contents_locations FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE`);
+      await connection.execute(`ALTER TABLE contents ADD CONSTRAINT IF NOT EXISTS fk_contents_users FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
+      await connection.execute(`ALTER TABLE likes ADD CONSTRAINT IF NOT EXISTS fk_likes_contents FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE`);
+      await connection.execute(`ALTER TABLE likes ADD CONSTRAINT IF NOT EXISTS fk_likes_users FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
+    } catch (fkError) {
+      console.log('外键约束添加失败，可能已存在:', fkError.message);
+    }
+    
+    // 添加索引
+    await connection.execute(`CREATE INDEX IF NOT EXISTS idx_locations_user_id ON locations(user_id)`);
+    await connection.execute(`CREATE INDEX IF NOT EXISTS idx_locations_city ON locations(city)`);
+    await connection.execute(`CREATE INDEX IF NOT EXISTS idx_contents_user_id ON contents(user_id)`);
+    await connection.execute(`CREATE INDEX IF NOT EXISTS idx_contents_location_id ON contents(location_id)`);
+    await connection.execute(`CREATE INDEX IF NOT EXISTS idx_contents_created_at ON contents(created_at)`);
+    
+    // 插入默认数据
+    await connection.execute(`INSERT IGNORE INTO users (username, nickname) VALUES ('anonymous', '匿名用户')`);
+    await connection.execute(`INSERT IGNORE INTO statistics (id, total_markers, total_cities, total_photos, total_comments) VALUES (1, 0, 0, 0, 0)`);
+    
+    // 更新统计信息
+    await connection.execute(`
+      UPDATE statistics SET 
+        total_markers = (SELECT COUNT(*) FROM contents),
+        total_cities = (SELECT COUNT(DISTINCT city) FROM locations WHERE city IS NOT NULL AND city != ''),
+        total_photos = (SELECT COUNT(*) FROM contents WHERE image_url IS NOT NULL),
+        total_comments = (SELECT COUNT(*) FROM contents)
+      WHERE id = 1
+    `);
+    
+    await connection.end();
+    console.log('✓ 数据库初始化完成');
+    return true;
+  } catch (error) {
+    console.error('✗ 数据库初始化失败:', error.message);
+    return false;
+  }
+}
 
 // 文件存储作为备选
 const DATA_FILE = 'data.json';
@@ -94,6 +227,10 @@ function initSampleData() {
 // 数据库连接测试
 async function testDatabaseConnection() {
   try {
+    // 首先初始化数据库
+    await initializeDatabase();
+    
+    // 然后测试连接
     const connection = await mysql.createConnection(DB_CONFIG);
     await connection.end();
     console.log('✓ MySQL数据库连接成功');
@@ -111,15 +248,21 @@ app.get('/api/markers', async (req, res) => {
     // 尝试使用数据库
     try {
       const connection = await mysql.createConnection(DB_CONFIG);
+      // 使用更简单的查询以避免潜在的JOIN问题
       const [rows] = await connection.execute(`
-        SELECT c.id, u.nickname, l.city AS location, l.latitude, l.longitude, 
-               c.message, c.image_url AS image, 
-               COUNT(lk.id) AS likes, c.created_at AS date
+        SELECT 
+          c.id, 
+          u.nickname, 
+          IF(l.city IS NULL OR l.city = '', l.address, l.city) AS location, 
+          l.latitude, 
+          l.longitude, 
+          c.message, 
+          c.image_url AS image, 
+          (SELECT COUNT(*) FROM likes WHERE content_id = c.id) AS likes, 
+          c.created_at AS date
         FROM contents c
-        JOIN users u ON c.user_id = u.id
-        JOIN locations l ON c.location_id = l.id
-        LEFT JOIN likes lk ON c.id = lk.content_id
-        GROUP BY c.id
+        LEFT JOIN users u ON c.user_id = u.id
+        LEFT JOIN locations l ON c.location_id = l.id
         ORDER BY c.created_at DESC
       `);
       await connection.end();
@@ -158,9 +301,6 @@ app.post('/api/markers', async (req, res) => {
     try {
       const connection = await mysql.createConnection(DB_CONFIG);
       
-      // 开始事务
-      await connection.beginTransaction();
-      
       // 创建或获取用户
       let [users] = await connection.execute(
         'SELECT id FROM users WHERE nickname = ?',
@@ -169,31 +309,23 @@ app.post('/api/markers', async (req, res) => {
       let userId;
       
       if (users.length === 0) {
+        // 简化用户创建，确保有username字段
+        const username = 'user_' + Date.now();
         const [result] = await connection.execute(
-          'INSERT INTO users (nickname, created_at) VALUES (?, NOW())',
-          [newMarker.nickname]
+          'INSERT INTO users (username, nickname, created_at) VALUES (?, ?, NOW())',
+          [username, newMarker.nickname]
         );
         userId = result.insertId;
       } else {
         userId = users[0].id;
       }
       
-      // 创建或获取位置
-      let [locations] = await connection.execute(
-        'SELECT id FROM locations WHERE latitude = ? AND longitude = ?',
-        [newMarker.latitude, newMarker.longitude]
+      // 创建位置
+      const [locationResult] = await connection.execute(
+        'INSERT INTO locations (latitude, longitude, city, address, user_id, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+        [newMarker.latitude, newMarker.longitude, newMarker.location, newMarker.location, userId]
       );
-      let locationId;
-      
-      if (locations.length === 0) {
-        const [result] = await connection.execute(
-          'INSERT INTO locations (latitude, longitude, city, created_at) VALUES (?, ?, ?, NOW())',
-          [newMarker.latitude, newMarker.longitude, newMarker.location]
-        );
-        locationId = result.insertId;
-      } else {
-        locationId = locations[0].id;
-      }
+      const locationId = locationResult.insertId;
       
       // 创建内容
       await connection.execute(
@@ -201,10 +333,17 @@ app.post('/api/markers', async (req, res) => {
         [newMarker.id, userId, locationId, newMarker.message, newMarker.image]
       );
       
-      // 提交事务
-      await connection.commit();
-      await connection.end();
+      // 更新统计信息
+      await connection.execute(`
+        UPDATE statistics SET 
+          total_markers = (SELECT COUNT(*) FROM contents),
+          total_cities = (SELECT COUNT(DISTINCT city) FROM locations WHERE city IS NOT NULL AND city != ''),
+          total_photos = (SELECT COUNT(*) FROM contents WHERE image_url IS NOT NULL),
+          total_comments = (SELECT COUNT(*) FROM contents)
+        WHERE id = 1
+      `);
       
+      await connection.end();
       console.log('标记已添加到数据库');
     } catch (dbError) {
       console.log('数据库写入失败，使用文件存储:', dbError.message);

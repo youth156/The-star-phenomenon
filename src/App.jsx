@@ -41,22 +41,88 @@ function App() {
 
   // 加载数据
   useEffect(() => {
+    // 从后端API加载数据
     const loadData = async () => {
       try {
-        const response = await fetch('sample-data.json')
-        const data = await response.json()
-        // 转换数据格式：将latitude和longitude转换为position数组
-        const formattedMarkers = data.markers.map(marker => ({
-          ...marker,
-          position: [marker.latitude, marker.longitude]
-        }))
-        setMarkers(formattedMarkers)
-        setStats(data.stats)
+        // 加载标记数据
+        const markersResponse = await fetch('http://localhost:8000/api/markers');
+        if (markersResponse.ok) {
+          const markersData = await markersResponse.json();
+          // 确保数据格式正确
+          const formattedMarkers = Array.isArray(markersData) ? markersData.map(marker => ({
+            ...marker,
+            position: marker.position || [marker.latitude, marker.longitude]
+          })) : [];
+          setMarkers(formattedMarkers);
+          // 同时保存到localStorage作为备份
+          localStorage.setItem('markers', JSON.stringify(formattedMarkers));
+          
+          // 更新统计信息
+          updateStats(formattedMarkers);
+        } else {
+          console.error('加载标记失败:', markersResponse.status);
+          // 如果API失败，从localStorage加载
+          loadFromLocalStorage();
+        }
       } catch (error) {
-        console.error('Failed to load data:', error)
+        console.error('加载数据错误:', error);
+        // 出现网络错误时，尝试从localStorage加载
+        loadFromLocalStorage();
       }
-    }
-    loadData()
+    };
+
+    const loadFromLocalStorage = () => {
+      const storedMarkers = localStorage.getItem('markers');
+      if (storedMarkers) {
+        try {
+          const markers = JSON.parse(storedMarkers);
+          const formattedMarkers = Array.isArray(markers) ? markers.map(marker => ({
+            ...marker,
+            position: marker.position || [marker.latitude, marker.longitude]
+          })) : [];
+          setMarkers(formattedMarkers);
+          updateStats(formattedMarkers);
+        } catch (parseError) {
+          console.error('解析localStorage数据失败:', parseError);
+          setMarkers([]);
+          setStats({ totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
+        }
+      } else {
+        // 最后尝试从sample-data.json加载
+        fetch('sample-data.json')
+          .then(response => response.json())
+          .then((sampleData) => {
+            if (sampleData.markers) {
+              const formattedMarkers = sampleData.markers.map(marker => ({
+                ...marker,
+                position: [marker.latitude, marker.longitude]
+              }));
+              setMarkers(formattedMarkers);
+              setStats(sampleData.stats || { totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
+              localStorage.setItem('markers', JSON.stringify(formattedMarkers));
+            }
+          })
+          .catch(() => {
+            setStats({ totalMarkers: 0, totalCities: 0, totalPhotos: 0, totalComments: 0 });
+          });
+      }
+    };
+
+    const updateStats = (markers) => {
+      const stats = {
+        totalMarkers: markers.length,
+        totalCities: new Set(markers.map(m => m.location).filter(loc => loc && loc.trim())).size,
+        totalPhotos: markers.filter(m => m.image).length,
+        totalComments: markers.length
+      };
+      setStats(stats);
+    };
+
+    loadData();
+
+    // 设置定期更新（每30秒）
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
   }, [])
 
   // 获取用户地理位置
@@ -151,7 +217,7 @@ function App() {
   }
 
   // 处理表单提交
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     
     // 使用用户位置或随机位置
@@ -159,26 +225,96 @@ function App() {
       ? [formData.latitude, formData.longitude]
       : [35 + Math.random() * 20, 105 + Math.random() * 30]
     
-    const newMarker = {
-      id: Date.now(),
-      nickname: formData.nickname,
-      location: formData.location,
-      position: position,
-      message: formData.message,
-      image: formData.image ? URL.createObjectURL(formData.image) : null,
-      likes: 0,
-      date: new Date().toISOString().split('T')[0]
+    // 对于图片，使用在线图片服务或占位符
+    let imageUrl = null
+    if (formData.image) {
+      // 如果是新上传的文件，使用picsum.photos作为演示
+      if (formData.image instanceof File) {
+        // 使用随机图片作为演示
+        const randomId = Math.floor(Math.random() * 1000)
+        imageUrl = `https://picsum.photos/id/${randomId}/800/600`
+        // 在实际应用中，这里应该上传文件到服务器
+      } else {
+        imageUrl = formData.image
+      }
     }
     
-    setMarkers([...markers, newMarker])
-    setStats(prev => ({
-      ...prev,
-      totalMarkers: prev.totalMarkers + 1,
-      totalPhotos: formData.image ? prev.totalPhotos + 1 : prev.totalPhotos
-    }))
+    // 准备发送到后端的数据
+    const newMarker = {
+      nickname: formData.nickname || '匿名用户',
+      location: formData.location || '未知位置',
+      latitude: position[0],
+      longitude: position[1],
+      message: formData.message || '',
+      image: imageUrl
+    }
     
+    try {
+      // 发送数据到后端API
+      const response = await fetch('http://localhost:8000/api/markers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newMarker)
+      })
+      
+      if (response.ok) {
+        const result = await response.json();
+        const markerWithPosition = {
+          ...result.marker,
+          position: result.marker.position || [result.marker.latitude, result.marker.longitude]
+        };
+        // 更新本地状态
+        const updatedMarkers = [...markers, markerWithPosition];
+        setMarkers(updatedMarkers);
+        // 保存到localStorage作为备份
+        localStorage.setItem('markers', JSON.stringify(updatedMarkers));
+        // 更新统计
+        updateStats(updatedMarkers);
+        // 显示成功消息
+        alert('标记添加成功！其他用户现在可以看到您的标记了。')
+      } else {
+        console.error('提交失败:', response.status);
+        // 如果API失败，直接添加到本地
+        addLocalMarker(newMarker);
+        alert('添加标记成功（本地模式）！');
+      }
+    } catch (error) {
+      console.error('提交错误:', error);
+      // 网络错误时也添加到本地
+      addLocalMarker(newMarker);
+      alert('添加标记成功（本地模式）！');
+    }
+    
+    // 重置表单和模态框
     setShowModal(false)
     setFormData({ location: '', nickname: '', message: '', image: null, latitude: null, longitude: null })
+  }
+  
+  const addLocalMarker = (markerData) => {
+    const localMarker = {
+      ...markerData,
+      id: Date.now().toString(),
+      likes: 0,
+      date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      position: [markerData.latitude, markerData.longitude]
+    };
+    const updatedMarkers = [...markers, localMarker];
+    setMarkers(updatedMarkers);
+    localStorage.setItem('markers', JSON.stringify(updatedMarkers));
+    // 更新统计
+    updateStats(updatedMarkers);
+  };
+
+  const updateStats = (currentMarkers) => {
+    const stats = {
+      totalMarkers: currentMarkers.length,
+      totalCities: new Set(currentMarkers.map(m => m.location || '').filter(loc => loc.trim())).size,
+      totalPhotos: currentMarkers.filter(m => m.image).length,
+      totalComments: currentMarkers.length
+    };
+    setStats(stats);
   }
 
   // 处理图片上传
@@ -280,7 +416,7 @@ function App() {
                           <p className="text-sm text-gray-500 mb-2">{marker.location}</p>
                           <p className="mb-3">{marker.message}</p>
                           {marker.image && (
-                            <img src={marker.image} alt="分享图片" className="w-full h-32 object-cover rounded-md mb-2" />
+                            <img src={marker.image} alt="分享图片" className="w-full max-h-64 object-contain rounded-md mb-2 mx-auto" />
                           )}
                           <div className="flex justify-between items-center text-xs text-gray-500">
                             <span>{marker.date}</span>
